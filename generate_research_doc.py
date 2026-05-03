@@ -7,6 +7,7 @@ and summaries, per the OpenClaw research-doc specification.
 
 import argparse
 import json
+import os
 import re
 import sys
 from datetime import datetime
@@ -28,7 +29,15 @@ except ImportError:
 DEFAULT_OUTPUT_DIR = Path.home() / ".openclaw" / "workspace" / "Research Reports"
 
 
-def slugify(title):
+def parse_level(value):
+    try:
+        level = int(value)
+    except (TypeError, ValueError):
+        level = 1
+    return max(1, min(level, 2))
+
+
+def slugify(title: str) -> str:
     slug = re.sub(r"[^\w\s-]", "", title).strip()
     slug = re.sub(r"[\s-]+", "_", slug)
     return slug or "Research_Report"
@@ -153,18 +162,20 @@ def build_document(data, include_toc, title_arg):
     meta_bits = []
     author = data.get("author")
     if author:
-        meta_bits.append(author)
+        meta_bits.append(str(author))
     date_value = data.get("date", "auto")
     if date_value == "auto" or not date_value:
         date_value = datetime.now().strftime("%B %d, %Y")
-    meta_bits.append(date_value)
+    meta_bits.append(str(date_value))
     if meta_bits:
         mp = doc.add_paragraph()
-        mr = mp.add_run("  \u00b7  ".join(meta_bits))
+        mr = mp.add_run("  ·  ".join(meta_bits))
         set_run_font(mr, size=10, color=(130, 130, 130))
         mp.paragraph_format.space_after = Pt(10)
 
     abstract = data.get("abstract")
+    if abstract:
+        abstract = str(abstract).strip()
     if abstract:
         ap = doc.add_paragraph()
         ar = ap.add_run(abstract)
@@ -183,12 +194,11 @@ def build_document(data, include_toc, title_arg):
 
     for section in data.get("sections", []) or []:
         heading = section.get("heading", "")
-        level = int(section.get("level", 1) or 1)
-        level = max(1, min(level, 2))
+        level = parse_level(section.get("level", 1))
         if heading:
-            doc.add_heading(heading, level=level)
+            doc.add_heading(str(heading), level=level)
         content = section.get("content", "")
-        if content:
+        if content is not None and content != "":
             for para in str(content).split("\n\n"):
                 para = para.strip()
                 if not para:
@@ -208,7 +218,7 @@ def build_document(data, include_toc, title_arg):
             p.paragraph_format.first_line_indent = Cm(-0.6)
 
     footer = doc.sections[0].footer
-    fp = footer.paragraphs[0]
+    fp = footer.paragraphs[0] if footer.paragraphs else footer.add_paragraph()
     fp.alignment = WD_ALIGN_PARAGRAPH.CENTER
     add_page_number_field(fp)
 
@@ -226,19 +236,20 @@ def print_preview(data, include_toc, title_arg):
     if date_value == "auto" or not date_value:
         date_value = datetime.now().strftime("%B %d, %Y")
     print(f"DATE: {date_value}")
-    if data.get("abstract"):
-        snippet = data['abstract'][:120] + ('...' if len(data['abstract']) > 120 else '')
-        print(f"ABSTRACT: {snippet}")
+    abstract = data.get("abstract")
+    if abstract:
+        abstract = str(abstract)
+        print(f"ABSTRACT: {abstract[:120]}{'…' if len(abstract) > 120 else ''}")
     if include_toc:
         print("[Table of Contents]")
     print("---")
     for section in data.get("sections", []) or []:
-        level = int(section.get("level", 1) or 1)
+        level = parse_level(section.get("level", 1))
         indent = "  " * (level - 1)
         print(f"{indent}- H{level}: {section.get('heading', '')}")
-        content = (section.get("content") or "").strip().replace("\n", " ")
+        content = str(section.get("content") or "").strip().replace("\n", " ")
         if content:
-            preview = content[:80] + ("..." if len(content) > 80 else "")
+            preview = content[:80] + ("…" if len(content) > 80 else "")
             print(f"{indent}    {preview}")
     refs = data.get("references") or []
     if refs:
@@ -276,52 +287,6 @@ def load_content(path):
         raise FileNotFoundError(f"Content file not found: {p}")
     try:
         with p.open("r", encoding="utf-8") as f:
-            return json.load(f)
+            data = json.load(f)
     except json.JSONDecodeError as e:
-        raise ValueError(f"Invalid JSON in {p}: {e}")
-
-
-def main():
-    args = parse_args()
-    try:
-        data = load_content(args.content) if args.content else {}
-    except (FileNotFoundError, ValueError) as e:
-        sys.stderr.write(f"Error: {e}\n")
-        sys.exit(1)
-
-    if not args.title and not data.get("title"):
-        sys.stderr.write("Error: a title is required (use --title or set 'title' in the JSON).\n")
-        sys.exit(1)
-
-    if args.preview:
-        print_preview(data, args.toc, args.title)
-        return
-
-    try:
-        doc, title, _ = build_document(data, args.toc, args.title)
-    except Exception as e:
-        sys.stderr.write(f"Error building document: {e}\n")
-        sys.exit(1)
-
-    output_dir = Path(args.output_dir).expanduser()
-    try:
-        output_dir.mkdir(parents=True, exist_ok=True)
-    except OSError as e:
-        sys.stderr.write(f"Error creating output directory '{output_dir}': {e}\n")
-        sys.exit(1)
-
-    timestamp = datetime.now().strftime("%Y-%m-%d")
-    filename = f"{slugify(title)}_{timestamp}.docx"
-    output_path = output_dir / filename
-
-    try:
-        doc.save(str(output_path))
-    except OSError as e:
-        sys.stderr.write(f"Error writing '{output_path}': {e}\n")
-        sys.exit(1)
-
-    print(str(output_path))
-
-
-if __name__ == "__main__":
-    main()
+        raise ValueError(f"Invalid JSON in {

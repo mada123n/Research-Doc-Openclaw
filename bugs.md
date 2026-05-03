@@ -1,0 +1,7 @@
+# bugs
+
+- **Non-dict JSON root crashes.** `load_content` returns whatever `json.load` gives back, but later code assumes `data` is a dict and calls `.get`. If the JSON root is a list or scalar, it will raise `AttributeError`. **Suggested fix:** validate `isinstance(data, dict)` after loading and raise a clear `ValueError` if not.
+- **Section level parsing can throw `ValueError`.** `int(section.get("level", 1) or 1)` will crash on non-numeric strings, and `print_preview` doesn’t clamp levels to 1–2 like `build_document` does. **Suggested fix:** parse levels in a try/except, default to 1, and clamp to the 1–2 range in both code paths.
+- **Metadata join fails for non-string author/date.** `"  ·  ".join(meta_bits)` expects strings; numeric `author`/`date` values in JSON will raise `TypeError`. **Suggested fix:** coerce `author` and `date_value` to `str` before joining or validate types up front.
+- **Footer paragraph assumption can IndexError.** `footer.paragraphs[0]` assumes the footer has at least one paragraph; some docx states may have zero. **Suggested fix:** create a footer paragraph if `footer.paragraphs` is empty before adding the page number field.
+- **Non-string abstract/content values can crash.** `add_run` expects strings; if JSON uses `null`, numbers, or arrays for `abstract`/`content`, it will error. **Suggested fix:** validate these fields are strings or coerce to `str` before `add_run`, and skip empty values.
